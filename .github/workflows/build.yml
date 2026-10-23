@@ -1,0 +1,111 @@
+# Тесты и сборка Yatype на GitHub.
+#
+# - на каждый push и pull request: тесты ядра на macOS, Windows и Linux,
+#   сборка DMG и Windows-установщика (их можно скачать со страницы запуска);
+# - на тег вида v1.2.3: то же самое плюс публикация релиза с файлами.
+
+name: build
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  # Windows-версия пока бета: пометка попадает в имена файлов.
+  WINDOWS_CHANNEL: "-beta"
+
+jobs:
+  test:
+    name: тесты (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Rust
+        run: rustup toolchain install stable --profile minimal
+      # Определитель и ядро не зависят от системы — проверяем их везде.
+      - name: Определитель и ядро
+        run: cargo test --release -p detector -p engine
+      # Системные слои — только там, где они есть.
+      - name: Программа целиком
+        if: runner.os != 'Linux'
+        run: cargo test --release --workspace
+
+  windows:
+    name: установщик Windows
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Rust
+        run: rustup toolchain install stable --profile minimal --target x86_64-pc-windows-msvc
+      - name: Сборка
+        run: cargo build --release -p switcher --bin switcher --target x86_64-pc-windows-msvc
+      - name: Версия
+        shell: bash
+        run: echo "VERSION=$(grep -m1 '^version' crates/switcher/Cargo.toml | cut -d'"' -f2)" >> "$GITHUB_ENV"
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) {
+            choco install innosetup --no-progress -y
+            $env:PATH += ";${env:ProgramFiles(x86)}\Inno Setup 6"
+          }
+          iscc /DAppVersion=$env:VERSION /DChannel=$env:WINDOWS_CHANNEL tools\windows\yatype.iss
+      - name: Переносная версия (zip)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist\portable | Out-Null
+          Copy-Item target\x86_64-pc-windows-msvc\release\switcher.exe dist\portable\Yatype.exe
+          Copy-Item data\LICENSES.txt dist\portable\
+          Compress-Archive -Path dist\portable\* -DestinationPath "dist\Yatype-$env:VERSION$env:WINDOWS_CHANNEL-windows-portable.zip"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: yatype-windows
+          path: |
+            dist/Yatype-Setup-*.exe
+            dist/Yatype-*-windows-portable.zip
+
+  macos:
+    name: DMG для macOS
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Rust
+        run: rustup toolchain install stable --profile minimal --target aarch64-apple-darwin --target x86_64-apple-darwin
+      - name: Сборка DMG
+        run: tools/build_dmg.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: yatype-macos
+          path: dist/Yatype-*.dmg
+
+  release:
+    name: релиз
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      # Описание релиза берём из docs/releases/<тег>.md.
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          path: files
+          merge-multiple: true
+      - name: Публикация
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes="docs/releases/$GITHUB_REF_NAME.md"
+          if [ -f "$notes" ]; then args=(--notes-file "$notes"); else args=(--generate-notes); fi
+          gh release create "$GITHUB_REF_NAME" files/* --repo "$GITHUB_REPOSITORY" --title "Yatype ${GITHUB_REF_NAME#v}" --latest "${args[@]}"

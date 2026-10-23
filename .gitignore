@@ -1,0 +1,6 @@
+/target
+/dist
+# Генерируется: python3 tools/expand_hunspell.py data/hunspell/ru_RU > data/ru_forms.txt
+/data/ru_forms.txt
+.DS_Store
+/promo

@@ -1,0 +1,91 @@
+Third-party data used by this program
+=====================================
+
+This file must be shipped inside the program (for example in the .app
+bundle's Resources folder). It does not need to be shown in the interface.
+
+
+1. Russian word forms
+---------------------
+
+Derived from the Russian Hunspell dictionary (ru_RU.dic, ru_RU.aff) by
+Alexander I. Lebedev.
+
+MODIFIED VERSION: the dictionary was expanded into a plain list of word forms,
+lowercased, with "ё" replaced by "е", proper names and abbreviations removed,
+merged with the project's own word list and stored in a compressed format.
+
+Copyright (c) 1997-2008, Alexander I. Lebedev
+
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+* Redistributions of source code must retain the above copyright
+  notice, this list of conditions and the following disclaimer.
+* Redistributions in binary form must reproduce the above copyright
+  notice, this list of conditions and the following disclaimer in the
+  documentation and/or other materials provided with the distribution.
+* Modified versions must be clearly marked as such.
+* The name of Alexander I. Lebedev may not be used to endorse or promote
+  products derived from this software without specific prior written
+  permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.
+
+
+2. English word forms
+---------------------
+
+ENABLE word list (Enhanced North American Benchmark LExicon), public domain.
+Credit to its originators, as they request.
+
+
+3. Frequent and modern words
+----------------------------
+
+The lists in data/core/ are the project's own work.
+
+
+4. Program code libraries
+-------------------------
+
+The program is written in Rust and includes these libraries:
+
+- Rust standard library — MIT or Apache-2.0, (c) The Rust Project Developers
+- fst — Unlicense (public domain), Andrew Gallant
+- macOS: objc2, objc2-encode, block2 — MIT, (c) Mads Marquart and contributors;
+  objc2-foundation, objc2-app-kit and related bindings — MIT;
+  bitflags, libc — MIT, (c) The Rust Project Developers
+- Windows: windows, windows-sys, windows-core and related crates — MIT, (c) Microsoft Corporation
+
+All of them are used under the MIT License:
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

@@ -1,0 +1,20 @@
+# Слова и фразы, набранные ПРАВИЛЬНО, которые трогать нельзя.
+# Формат: раскладка<TAB>текст
+en	git commit -m fix
+en	cargo build --release
+en	https://github.com/rust-lang/rust
+en	user@example.com
+en	USB HDMI API JSON HTTP
+en	iPhone macOS GitHub YouTube
+en	let x = vec![1, 2, 3];
+en	fn main() { println!("hi"); }
+en	OK lol btw
+en	Slava Moscow Kyiv
+en	password123 qwerty
+en	the a an i
+ru	ООО ИП РФ МГУ
+ru	ок спс пжл
+ru	Слава Москва Киев
+ru	ну да ну и что
+ru	а я и ты
+ru	в с к у о

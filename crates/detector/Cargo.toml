@@ -1,0 +1,8 @@
+[package]
+name = "detector"
+version = "0.1.0"
+edition = "2024"
+description = "Определяет, набран ли текст не в той раскладке (RU <-> EN)"
+
+[dependencies]
+fst = "0.4.7"

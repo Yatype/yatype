@@ -175,6 +175,23 @@ fn press(key: Key, delay: u64) {
     sleep(Duration::from_millis(delay));
 }
 
+/// Держать клавишу: первое нажатие и `repeats` повторов, как от удержания.
+fn hold(key: Key, repeats: usize) {
+    post(key.code, true, 0, false);
+    for _ in 0..repeats {
+        sleep(Duration::from_millis(35));
+        unsafe {
+            let e = CGEventCreateKeyboardEvent(std::ptr::null(), key.code, true);
+            CGEventSetFlags(e, 0);
+            CGEventSetIntegerValueField(e, kCGKeyboardEventAutorepeat, 1);
+            CGEventPost(kCGHIDEventTap, e);
+            CFRelease(e);
+        }
+    }
+    post(key.code, false, 0, false);
+    sleep(Duration::from_millis(30));
+}
+
 fn tap(code: u16, delay: u64) {
     press(Key { code, shift: false, caps: false }, delay);
 }
@@ -196,6 +213,8 @@ enum Step {
     Keys(String, u64),
     Backspace,
     DoubleControl,
+    /// Держать клавишу этого символа (в исходной раскладке) с повторами.
+    Hold(char, usize),
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -323,6 +342,13 @@ fn scenarios(quick: bool) -> Vec<Scenario> {
         "ckjdj ",
         En,
     ));
+    // Зажатая клавиша (так ходят в играх) — не слово. Без этого «e» стала бы «у».
+    // Искусственные повторы macOS в окно не пропускает (проверено и без
+    // переключателя), до окна доходит только первая «e».
+    list.push(scenario("Удержание клавиши", En, vec![Step::Hold('e', 4), keys(" ")], "e ", En));
+    // Слово из списка исключений (его пишет в настройки `main`).
+    list.push(scenario("Слово из исключений", En, vec![keys("rfhnjirf ")], "rfhnjirf ", En));
+    list.push(scenario("Исключение без учёта регистра", En, vec![keys("Rfhnjirf ")], "Rfhnjirf ", En));
     list.push(Scenario {
         name: "Поле пароля".into(),
         start: En,
@@ -332,6 +358,54 @@ fn scenarios(quick: bool) -> Vec<Scenario> {
         expect_lang: En,
     });
     list
+}
+
+/// Сценарии, когда тестовая программа вписана в исключения.
+fn excluded_app_scenarios() -> Vec<Scenario> {
+    vec![scenario("Программа в исключениях", Lang::En, vec![keys("ghbdtn ")], "ghbdtn ", Lang::En)]
+}
+
+/// Сценарии режима «только в этих программах», где тестовой программы нет.
+fn not_listed_scenarios() -> Vec<Scenario> {
+    vec![scenario("Режим «только в этих программах»: программы нет в списке", Lang::En, vec![keys("ghbdtn ")], "ghbdtn ", Lang::En)]
+}
+
+/// Сценарии режима «только в этих программах», где тестовая программа есть.
+fn listed_scenarios() -> Vec<Scenario> {
+    vec![scenario("Режим «только в этих программах»: программа в списке", Lang::En, vec![keys("ghbdtn ")], "привет ", Lang::Ru)]
+}
+
+/// Настройки для прогона: всё по умолчанию, кроме того, что проверяем
+/// (`extra` — дополнительные аргументы `defaults write switcher …`).
+fn write_settings(extra: &[&[&str]]) {
+    let defaults = |args: &[&str]| {
+        let _ = Command::new("defaults").args(args).stderr(Stdio::null()).status();
+    };
+    defaults(&["delete", "switcher"]);
+    // Отмену через Backspace включаем: её проверяет отдельный сценарий.
+    defaults(&["write", "switcher", "backspaceUndo", "-bool", "true"]);
+    defaults(&["write", "switcher", "exceptionWords", "-array", "rfhnjirf"]);
+    for args in extra {
+        let mut all = vec!["write", "switcher"];
+        all.extend_from_slice(args);
+        defaults(&all);
+    }
+}
+
+fn spawn_switcher() -> Child {
+    let exe = std::env::current_exe().expect("путь к тесту");
+    let dir = exe.parent().expect("папка сборки");
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("e2e-switcher.log"))
+        .expect("лог переключателя");
+    Command::new(dir.join("switcher"))
+        .arg("--verbose")
+        .stdout(Stdio::from(log.try_clone().unwrap()))
+        .stderr(Stdio::from(log))
+        .spawn()
+        .expect("не запустился switcher — сначала cargo build --release")
 }
 
 fn wait_front() -> bool {
@@ -345,12 +419,49 @@ fn wait_front() -> bool {
     FRONT.load(Ordering::SeqCst)
 }
 
-fn run(scenarios: Vec<Scenario>, mut switcher: Child, en: HashMap<char, Key>, ru: HashMap<char, Key>) -> i32 {
-    let keys_of = |l: Lang| if l == Lang::En { &en } else { &ru };
-    sleep(Duration::from_millis(1500)); // переключатель загружается
-
+fn run(scenarios: Vec<Scenario>, en: HashMap<char, Key>, ru: HashMap<char, Key>) -> i32 {
     let (mut passed, mut failed) = (0, Vec::new());
-    for s in &scenarios {
+    write_settings(&[]);
+    let switcher = spawn_switcher();
+    play(&scenarios, switcher, &en, &ru, &mut passed, &mut failed);
+    // Дальше — перезапуски с другими настройками. Тестовая программа
+    // записана названием и в другом регистре — как её мог бы вписать человек.
+    let runs: [(Vec<Scenario>, &[&[&str]]); 3] = [
+        (excluded_app_scenarios(), &[&["excludedApps", "-array", "E2E"]]),
+        (not_listed_scenarios(), &[&["onlyListedApps", "-bool", "true"], &["allowedApps", "-array", "Telegram"]]),
+        (listed_scenarios(), &[&["onlyListedApps", "-bool", "true"], &["allowedApps", "-array", "E2E"]]),
+    ];
+    let mut total = scenarios.len();
+    for (list, extra) in &runs {
+        write_settings(extra);
+        let switcher = spawn_switcher();
+        play(list, switcher, &en, &ru, &mut passed, &mut failed);
+        total += list.len();
+    }
+
+    let _ = Command::new("defaults").args(["delete", "switcher"]).stderr(Stdio::null()).status();
+    println!("\nИтого: {passed} из {total} сценариев прошли.");
+    if !failed.is_empty() {
+        println!("Не прошли:");
+        for f in &failed {
+            println!("  - {f}");
+        }
+    }
+    if failed.is_empty() { 0 } else { 1 }
+}
+
+fn play(
+    scenarios: &[Scenario],
+    mut switcher: Child,
+    en: &HashMap<char, Key>,
+    ru: &HashMap<char, Key>,
+    passed: &mut usize,
+    failed: &mut Vec<String>,
+) {
+    let keys_of = |l: Lang| if l == Lang::En { en } else { ru };
+    sleep(Duration::from_millis(3000)); // переключатель загружает словари
+
+    for s in scenarios {
         if !wait_front() {
             eprintln!("Тестовое окно перестало быть активным — останавливаю тест.");
             failed.push(format!("{}: окно не активно, тест прерван", s.name));
@@ -380,6 +491,11 @@ fn run(scenarios: Vec<Scenario>, mut switcher: Child, en: HashMap<char, Key>, ru
                 }
                 Step::Backspace => tap(BACKSPACE, 30),
                 Step::DoubleControl => double_control(),
+                Step::Hold(c, repeats) => {
+                    if let Some(&key) = typing.get(c) {
+                        hold(key, *repeats);
+                    }
+                }
             }
         }
         sleep(Duration::from_millis(400));
@@ -391,7 +507,7 @@ fn run(scenarios: Vec<Scenario>, mut switcher: Child, en: HashMap<char, Key>, ru
             _ => None,
         };
         if got == s.expect && lang == Some(s.expect_lang) {
-            passed += 1;
+            *passed += 1;
             println!("  ок   {}", s.name);
         } else {
             println!("  ОШИБКА {}\n         ждал «{}» ({:?}), получил «{}» ({:?})", s.name, s.expect.escape_debug(), s.expect_lang, got.escape_debug(), lang);
@@ -400,15 +516,7 @@ fn run(scenarios: Vec<Scenario>, mut switcher: Child, en: HashMap<char, Key>, ru
     }
 
     let _ = switcher.kill();
-    let _ = Command::new("defaults").args(["delete", "switcher"]).stderr(Stdio::null()).status();
-    println!("\nИтого: {passed} из {} сценариев прошли.", scenarios.len());
-    if !failed.is_empty() {
-        println!("Не прошли:");
-        for f in &failed {
-            println!("  - {f}");
-        }
-    }
-    if failed.is_empty() { 0 } else { 1 }
+    let _ = switcher.wait();
 }
 
 pub fn main() {
@@ -420,18 +528,7 @@ pub fn main() {
     let quick = std::env::args().any(|a| a == "--quick");
 
     let exe = std::env::current_exe().expect("путь к тесту");
-    let dir = exe.parent().expect("папка сборки");
-    let log = std::fs::File::create(dir.join("e2e-switcher.log")).expect("лог переключателя");
-    // Чистые настройки: исключения от прошлых прогонов не должны мешать.
-    // Отмену через Backspace включаем: её проверяет отдельный сценарий.
-    let _ = Command::new("defaults").args(["delete", "switcher"]).stderr(Stdio::null()).status();
-    let _ = Command::new("defaults").args(["write", "switcher", "backspaceUndo", "-bool", "true"]).status();
-    let switcher = Command::new(dir.join("switcher"))
-        .arg("--verbose")
-        .stdout(Stdio::from(log.try_clone().unwrap()))
-        .stderr(Stdio::from(log))
-        .spawn()
-        .expect("не запустился switcher — сначала cargo build --release");
+    let _ = std::fs::remove_file(exe.with_file_name("e2e-switcher.log"));
 
     let (Some(en), Some(ru)) = keymap::enabled_layouts() else {
         eprintln!("Нужны включённые английская и русская раскладки");
@@ -448,7 +545,7 @@ pub fn main() {
     let list = scenarios(quick);
     println!("Сценариев: {}. Не трогайте клавиатуру и мышь до конца теста.\n", list.len());
     std::thread::spawn(move || {
-        let code = run(list, switcher, en_keys, ru_keys);
+        let code = run(list, en_keys, ru_keys);
         std::process::exit(code);
     });
     NSApplication::sharedApplication(mtm).run();

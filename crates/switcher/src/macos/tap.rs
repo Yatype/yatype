@@ -33,6 +33,8 @@ fn mods_of(flags: u64) -> u8 {
 type Handler = Box<dyn FnMut(Input) -> Pass>;
 
 static TAP: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
+static SOURCE: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
+static HANDLER: AtomicPtr<Handler> = AtomicPtr::new(std::ptr::null_mut());
 
 /// Есть ли разрешение «Универсальный доступ» (нужно, чтобы менять ввод).
 pub fn has_permission() -> bool {
@@ -70,11 +72,51 @@ pub fn install(handler: impl FnMut(Input) -> Pass + 'static) -> Result<(), &'sta
             return Err("система не дала поставить перехват клавиатуры (нет разрешения?)");
         }
         TAP.store(tap, Ordering::SeqCst);
+        HANDLER.store(handler, Ordering::SeqCst);
         let source = CFMachPortCreateRunLoopSource(std::ptr::null(), tap, 0);
+        SOURCE.store(source, Ordering::SeqCst);
         CFRunLoopAddSource(CFRunLoopGetMain(), source, kCFRunLoopCommonModes);
         CGEventTapEnable(tap, true);
     }
     Ok(())
+}
+
+/// Работает ли перехват. macOS выключает его, например, когда
+/// разрешение «Универсальный доступ» отозвали и выдали снова.
+pub fn is_enabled() -> bool {
+    let tap = TAP.load(Ordering::SeqCst);
+    !tap.is_null() && unsafe { CGEventTapIsEnabled(tap) }
+}
+
+/// Попробовать включить выключенный перехват. `false` — не включился.
+pub fn reenable() -> bool {
+    let tap = TAP.load(Ordering::SeqCst);
+    if tap.is_null() {
+        return false;
+    }
+    unsafe { CGEventTapEnable(tap, true) };
+    is_enabled()
+}
+
+/// Снять перехват, чтобы поставить заново. Вызывать из главного потока:
+/// там же вызывается колбэк, так что обработчик в этот момент не занят.
+pub fn remove() {
+    unsafe {
+        let tap = TAP.swap(std::ptr::null_mut(), Ordering::SeqCst);
+        let source = SOURCE.swap(std::ptr::null_mut(), Ordering::SeqCst);
+        if !source.is_null() {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, kCFRunLoopCommonModes);
+            CFRelease(source);
+        }
+        if !tap.is_null() {
+            CFMachPortInvalidate(tap);
+            CFRelease(tap);
+        }
+        let handler = HANDLER.swap(std::ptr::null_mut(), Ordering::SeqCst);
+        if !handler.is_null() {
+            drop(Box::from_raw(handler));
+        }
+    }
 }
 
 #[allow(non_upper_case_globals)] // константы macOS в образцах match
@@ -111,6 +153,9 @@ extern "C" fn callback(_proxy: CGEventTapProxy, ty: u32, event: CGEventRef, user
 }
 
 unsafe fn classify_key(event: CGEventRef) -> Input {
+    if unsafe { CGEventGetIntegerValueField(event, kCGKeyboardEventAutorepeat) } != 0 {
+        return Input::Held;
+    }
     let code = unsafe { CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode) } as u16;
     let flags = unsafe { CGEventGetFlags(event) };
     let held = mods_of(flags);

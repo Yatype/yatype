@@ -71,13 +71,11 @@ impl Platform for Fake {
         self.lang = Some(lang);
         true
     }
-    fn blocked(&mut self, user_excluded: &[String]) -> Option<&'static str> {
+    fn blocked(&mut self, settings: &Settings) -> Option<&'static str> {
         if self.password_field {
             Some("поле пароля")
-        } else if user_excluded.contains(&self.app) {
-            Some("приложение в исключениях")
         } else {
-            None
+            settings.app_blocked(&[&self.app])
         }
     }
     fn replace(&mut self, delete: usize, insert: &str) {
@@ -127,7 +125,7 @@ fn send(e: &mut Engine<Fake>, input: Input) {
         Input::Backspace => {
             f.text.pop();
         }
-        Input::Modifiers(_) | Input::Shortcut(_) | Input::Reset => {}
+        Input::Modifiers(_) | Input::Shortcut(_) | Input::Reset | Input::Held => {}
     }
 }
 
@@ -305,13 +303,47 @@ fn excluded_apps_are_never_touched() {
 }
 
 #[test]
-fn disabled_does_not_fix_but_hotkey_still_works() {
+fn only_listed_apps_are_fixed() {
+    let settings = Settings { only_listed: true, allowed_apps: vec!["telegram".into()], ..Settings::default() };
+    let mut e = engine(Lang::En, settings);
+    e.platform.app = "game".into();
+    press(&mut e, Lang::En, "ghbdtn ");
+    assert_eq!(e.platform.text, "ghbdtn ");
+    e.platform.app = "telegram".into();
+    press(&mut e, Lang::En, "ghbdtn ");
+    assert_eq!(e.platform.text, "ghbdtn привет ");
+}
+
+/// Одна буква без соседей не исправляется, а со следующим словом — да.
+#[test]
+fn lone_letter_waits_for_the_next_word() {
+    let mut e = engine(Lang::En, Settings::default());
+    press(&mut e, Lang::En, "e ");
+    assert_eq!(e.platform.text, "e ");
+    assert_eq!(e.platform.lang, Some(Lang::En));
+    press(&mut e, Lang::En, "ntcn ");
+    assert_eq!(e.platform.text, "у тест ");
+}
+
+/// В играх клавиши держат: «e» с автоповтором и прыжок пробелом — не слово.
+#[test]
+fn held_key_is_not_a_word() {
+    let mut e = engine(Lang::En, Settings::default());
+    press(&mut e, Lang::En, "e");
+    send(&mut e, Input::Held);
+    press(&mut e, Lang::En, " ");
+    assert_eq!(e.platform.text, "e ");
+    assert_eq!(e.platform.lang, Some(Lang::En));
+}
+
+#[test]
+fn paused_does_nothing_even_on_hotkey() {
     let settings = Settings { enabled: false, ..Settings::default() };
     let mut e = engine(Lang::En, settings);
     press(&mut e, Lang::En, "ghbdtn ");
     assert_eq!(e.platform.text, "ghbdtn ");
     double_control(&mut e);
-    assert_eq!(e.platform.text, "привет ");
+    assert_eq!(e.platform.text, "ghbdtn ");
 }
 
 #[test]

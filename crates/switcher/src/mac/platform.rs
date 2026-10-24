@@ -40,8 +40,8 @@ impl Platform for MacPlatform {
         self.layout(lang).select()
     }
 
-    fn blocked(&mut self, user_excluded: &[String]) -> Option<&'static str> {
-        guard::blocked(user_excluded)
+    fn blocked(&mut self, settings: &Settings) -> Option<&'static str> {
+        guard::blocked(settings)
     }
 
     fn replace(&mut self, delete: usize, insert: &str) {

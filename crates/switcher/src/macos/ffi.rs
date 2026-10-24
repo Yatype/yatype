@@ -37,6 +37,8 @@ unsafe extern "C" {
     ) -> CFRunLoopSourceRef;
     pub fn CFRunLoopGetMain() -> CFRunLoopRef;
     pub fn CFRunLoopAddSource(rl: CFRunLoopRef, source: CFRunLoopSourceRef, mode: CFStringRef);
+    pub fn CFRunLoopRemoveSource(rl: CFRunLoopRef, source: CFRunLoopSourceRef, mode: CFStringRef);
+    pub fn CFMachPortInvalidate(port: CFMachPortRef);
     pub fn CFAbsoluteTimeGetCurrent() -> f64;
     pub fn CFRunLoopTimerCreate(
         allocator: *const c_void,
@@ -61,6 +63,7 @@ pub const kCGEventTapDisabledByTimeout: u32 = 0xFFFF_FFFE;
 pub const kCGEventTapDisabledByUserInput: u32 = 0xFFFF_FFFF;
 
 // Поля и флаги.
+pub const kCGKeyboardEventAutorepeat: u32 = 8;
 pub const kCGKeyboardEventKeycode: u32 = 9;
 pub const kCGEventSourceUserData: u32 = 42;
 pub const kCGEventFlagMaskAlphaShift: u64 = 0x0001_0000;
@@ -89,6 +92,7 @@ unsafe extern "C" {
         user_info: *mut c_void,
     ) -> CFMachPortRef;
     pub fn CGEventTapEnable(tap: CFMachPortRef, enable: bool);
+    pub fn CGEventTapIsEnabled(tap: CFMachPortRef) -> bool;
     pub fn CGEventGetIntegerValueField(event: CGEventRef, field: u32) -> i64;
     pub fn CGEventGetFlags(event: CGEventRef) -> u64;
     pub fn CGPreflightListenEventAccess() -> bool;

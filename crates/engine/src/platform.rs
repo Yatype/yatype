@@ -24,9 +24,9 @@ pub trait Platform {
     fn read(&self, lang: Lang, keys: &[Key]) -> String;
     /// Сделать раскладку текущей. `false` — не получилось.
     fn select(&mut self, lang: Lang) -> bool;
-    /// Почему сейчас нельзя трогать ввод (поле пароля, приложение в
-    /// исключениях). `None` — можно.
-    fn blocked(&mut self, user_excluded: &[String]) -> Option<&'static str>;
+    /// Почему сейчас нельзя трогать ввод (поле пароля, игра, приложение в
+    /// исключениях или не в списке разрешённых). `None` — можно.
+    fn blocked(&mut self, settings: &Settings) -> Option<&'static str>;
     /// Стереть `delete` символов перед курсором и впечатать `insert` одной
     /// пачкой, в которую не вклинятся нажатия пользователя. `'\n'` — Enter.
     fn replace(&mut self, delete: usize, insert: &str);

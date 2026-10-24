@@ -88,16 +88,21 @@ impl Hotkey {
 
 #[derive(Clone, Debug)]
 pub struct Settings {
-    /// Исправлять автоматически. Если выключено, работает только горячая клавиша.
+    /// Yatype работает. Если выключено — пауза: ни исправлений, ни горячей клавиши.
     pub enabled: bool,
     pub hotkey: Hotkey,
     /// Своё сочетание, если выбрано `Hotkey::Combo`.
     pub combo: Option<Combo>,
     /// Backspace сразу после исправления отменяет его (как в Punto Switcher).
     pub backspace_undo: bool,
-    /// Приложения (идентификаторы вроде `ru.keepcoder.Telegram`), где не исправлять.
+    /// Приложения, где не исправлять: идентификатор (`ru.keepcoder.Telegram`),
+    /// название («Telegram») или имя файла на Windows (`telegram.exe`).
     /// Терминалы и менеджеры паролей исключены всегда, см. `guard`.
     pub excluded_apps: Vec<String>,
+    /// Работать только в программах из `allowed_apps`, а в остальных молчать.
+    pub only_listed: bool,
+    /// Программы, где работать, если включено `only_listed`.
+    pub allowed_apps: Vec<String>,
     /// Слова, которые не исправлять: сюда попадают отменённые исправления.
     pub exception_words: Vec<String>,
 }
@@ -110,6 +115,8 @@ impl Default for Settings {
             combo: None,
             backspace_undo: false,
             excluded_apps: Vec::new(),
+            only_listed: false,
+            allowed_apps: Vec::new(),
             exception_words: Vec::new(),
         }
     }
@@ -122,9 +129,55 @@ pub fn parse_lines(text: &str) -> Vec<String> {
     list
 }
 
+/// Есть ли приложение в списке исключений. `names` — как его можно назвать:
+/// идентификатор, название, имя файла. Регистр и `.exe` не важны, чтобы
+/// исключение срабатывало, как бы человек ни записал программу.
+pub fn app_excluded(excluded: &[String], names: &[&str]) -> bool {
+    let simple = |s: &str| {
+        let s = s.trim().to_lowercase();
+        s.strip_suffix(".exe").map(str::to_string).unwrap_or(s)
+    };
+    excluded.iter().any(|e| names.iter().any(|n| simple(e) == simple(n)))
+}
+
+impl Settings {
+    /// Почему в этой программе нельзя исправлять по выбору пользователя.
+    /// `names` — как программу можно назвать, см. [`app_excluded`].
+    pub fn app_blocked(&self, names: &[&str]) -> Option<&'static str> {
+        if self.only_listed {
+            (!app_excluded(&self.allowed_apps, names)).then_some("программа не в списке, где работать")
+        } else {
+            app_excluded(&self.excluded_apps, names).then_some("приложение в исключениях")
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_listed_mode_blocks_everything_else() {
+        let mut s = Settings { excluded_apps: vec!["Safari".into()], ..Settings::default() };
+        assert!(s.app_blocked(&["com.apple.Safari", "Safari"]).is_some());
+        assert!(s.app_blocked(&["ru.keepcoder.Telegram", "Telegram"]).is_none());
+        s.only_listed = true;
+        s.allowed_apps = vec!["Telegram".into()];
+        assert!(s.app_blocked(&["ru.keepcoder.Telegram", "Telegram"]).is_none());
+        // В этом режиме список исключений не действует: работает только список разрешённых.
+        assert!(s.app_blocked(&["com.apple.Notes", "Заметки"]).is_some());
+        assert!(s.app_blocked(&["com.apple.Safari", "Safari"]).is_some());
+    }
+
+    #[test]
+    fn apps_match_by_any_name() {
+        let list = vec!["Telegram".to_string(), "com.apple.Notes".to_string(), "WORD.EXE".to_string()];
+        assert!(app_excluded(&list, &["ru.keepcoder.Telegram", "Telegram"]));
+        assert!(app_excluded(&list, &["com.apple.notes", "Заметки"]));
+        assert!(app_excluded(&list, &["winword.exe", "word"]));
+        assert!(!app_excluded(&list, &["com.apple.Safari", "Safari"]));
+        assert!(app_excluded(&["telegram".into()], &["telegram.exe"]));
+    }
 
     #[test]
     fn parses_lines() {

@@ -11,6 +11,8 @@ const COMBO_MODS: &str = "comboMods";
 const BACKSPACE_UNDO: &str = "backspaceUndo";
 const EXCLUDED_APPS: &str = "excludedApps";
 const EXCEPTION_WORDS: &str = "exceptionWords";
+const ONLY_LISTED: &str = "onlyListedApps";
+const ALLOWED_APPS: &str = "allowedApps";
 
 fn key(name: &str) -> objc2::rc::Retained<NSString> {
     NSString::from_str(name)
@@ -42,6 +44,8 @@ pub fn load() -> Settings {
         combo,
         backspace_undo: d.boolForKey(&key(BACKSPACE_UNDO)),
         excluded_apps: load_list(&d, EXCLUDED_APPS),
+        only_listed: d.boolForKey(&key(ONLY_LISTED)),
+        allowed_apps: load_list(&d, ALLOWED_APPS),
         exception_words: load_list(&d, EXCEPTION_WORDS),
     }
 }
@@ -56,5 +60,7 @@ pub fn save(settings: &Settings) {
     }
     d.setBool_forKey(settings.backspace_undo, &key(BACKSPACE_UNDO));
     save_list(&d, EXCLUDED_APPS, &settings.excluded_apps);
+    d.setBool_forKey(settings.only_listed, &key(ONLY_LISTED));
+    save_list(&d, ALLOWED_APPS, &settings.allowed_apps);
     save_list(&d, EXCEPTION_WORDS, &settings.exception_words);
 }

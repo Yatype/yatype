@@ -6,9 +6,11 @@
 //!    включён, система вообще не присылает нам нажатия.
 //! 2. Поле в фокусе — поле пароля (`AXSecureTextField`), даже если
 //!    защищённый ввод оно не включило.
-//! 3. Активное приложение в списке исключений.
+//! 3. Активное приложение в списке исключений (или не в списке, где
+//!    работать, если пользователь выбрал такой режим).
 
-use objc2_app_kit::NSWorkspace;
+use engine::Settings;
+use objc2_app_kit::{NSRunningApplication, NSWorkspace};
 use objc2_foundation::NSString;
 
 use super::ffi::*;
@@ -37,21 +39,28 @@ const EXCLUDED_APPS: &[&str] = &[
     "com.dashlane.dashlanephonefinal",
 ];
 
-/// Почему сейчас нельзя трогать ввод. `None` — можно. `user_excluded` —
-/// приложения, которые пользователь исключил сам.
-pub fn blocked(user_excluded: &[String]) -> Option<&'static str> {
+/// Почему сейчас нельзя трогать ввод. `None` — можно.
+pub fn blocked(settings: &Settings) -> Option<&'static str> {
     if unsafe { IsSecureEventInputEnabled() } != 0 {
         return Some("включён защищённый ввод");
     }
     if focused_is_password() {
         return Some("поле пароля");
     }
-    if let Some(id) = frontmost_app() {
-        if EXCLUDED_APPS.contains(&id.as_str()) || user_excluded.contains(&id) {
-            return Some("приложение в исключениях");
-        }
+    let app = NSWorkspace::sharedWorkspace().frontmostApplication()?;
+    let (id, name) = app_names(&app)?;
+    if EXCLUDED_APPS.contains(&id.as_str()) {
+        return Some("приложение в исключениях");
     }
-    None
+    settings.app_blocked(&[&id, &name])
+}
+
+/// Идентификатор и название программы. У программы без идентификатора
+/// вместо него — название.
+fn app_names(app: &NSRunningApplication) -> Option<(String, String)> {
+    let name = app.localizedName().map(|n| n.to_string());
+    let id = app.bundleIdentifier().map(|i| i.to_string()).or_else(|| name.clone())?;
+    Some((id.clone(), name.unwrap_or(id)))
 }
 
 /// Идентификатор активного приложения, например `com.apple.Notes`.
@@ -59,12 +68,10 @@ pub fn frontmost_app() -> Option<String> {
     frontmost_app_with_name().map(|(id, _)| id)
 }
 
-/// Идентификатор и название активного приложения.
+/// Идентификатор и название активного приложения. У программы без
+/// идентификатора вместо него — название.
 pub fn frontmost_app_with_name() -> Option<(String, String)> {
-    let app = NSWorkspace::sharedWorkspace().frontmostApplication()?;
-    let id = app.bundleIdentifier()?.to_string();
-    let name = app.localizedName().map(|n| n.to_string()).unwrap_or_else(|| id.clone());
-    Some((id, name))
+    app_names(&*NSWorkspace::sharedWorkspace().frontmostApplication()?)
 }
 
 /// Исключено ли приложение всегда (терминалы, менеджеры паролей).
@@ -103,3 +110,4 @@ fn focused_is_password() -> bool {
         is_secure
     }
 }
+

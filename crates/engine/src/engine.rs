@@ -81,6 +81,11 @@ impl<P: Platform> Engine<P> {
             self.refresh_status();
         }
         let Some(lang) = lang else { return Pass::Through };
+        // Пауза: Yatype не вмешивается ни во что, даже горячая клавиша молчит
+        // (в играх Control часто — «присесть»).
+        if !self.settings.enabled {
+            return Pass::Through;
+        }
 
         match input {
             Input::Modifiers(held) => {
@@ -110,7 +115,7 @@ impl<P: Platform> Engine<P> {
         match input {
             Input::Key(key) => self.typing.key(key),
             Input::Backspace => self.typing.backspace(),
-            Input::Reset | Input::Shortcut(_) => self.typing.reset(),
+            Input::Reset | Input::Shortcut(_) | Input::Held => self.typing.reset(),
             Input::Space => {
                 let pass = self.auto_fix(lang, false);
                 self.typing.space();
@@ -169,12 +174,18 @@ impl<P: Platform> Engine<P> {
         }
         // Проверяем до разбора слов: набранное в поле пароля не должно
         // попасть ни в определитель, ни в лог.
-        if let Some(why) = self.platform.blocked(&self.settings.excluded_apps) {
+        if let Some(why) = self.platform.blocked(&self.settings) {
             self.typing.reset();
             self.log(|| format!("       пропускаю: {why}"));
             return Pass::Through;
         }
         let words = self.analyze(lang);
+        // Одна буква без соседних слов («e» → «у») — самая частая ложная
+        // тревога: так жмут клавиши в играх и программах. Ждём следующего
+        // слова — если фраза продолжится, буква исправится вместе с ним.
+        if words.iter().filter(|w| w.switch).all(|w| w.len == 1) {
+            return Pass::Through;
+        }
         let Some(mut edit) = fixer::plan(&words) else { return Pass::Through };
         if self.dry_run {
             self.log(|| format!("       исправил бы: «{}» → «{}»", edit.original, edit.insert));
@@ -240,7 +251,7 @@ impl<P: Platform> Engine<P> {
 
     /// Перевести последнее слово в другую раскладку вручную.
     fn convert_last_word(&mut self, lang: Lang) {
-        if let Some(why) = self.platform.blocked(&self.settings.excluded_apps) {
+        if let Some(why) = self.platform.blocked(&self.settings) {
             self.typing.reset();
             self.log(|| format!("       пропускаю: {why}"));
             return;

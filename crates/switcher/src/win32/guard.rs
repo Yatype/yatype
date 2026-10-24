@@ -7,6 +7,7 @@
 //!   `ssh` и т. п. спрашивают пароль без звёздочек), менеджеры паролей,
 //!   удалённый рабочий стол.
 
+use engine::Settings;
 use windows_sys::Win32::Foundation::CloseHandle;
 use windows_sys::Win32::System::Threading::{
     OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
@@ -94,16 +95,16 @@ fn focused_is_password() -> bool {
     }
 }
 
-/// Почему сейчас нельзя трогать ввод. `None` — можно. `user_excluded` —
-/// программы, которые пользователь исключил сам (имена файлов).
-pub fn blocked(user_excluded: &[String]) -> Option<&'static str> {
+/// Почему сейчас нельзя трогать ввод. `None` — можно.
+pub fn blocked(settings: &Settings) -> Option<&'static str> {
     if focused_is_password() || super::uia::password_focused() {
         return Some("поле пароля");
     }
-    if let Some((file, _)) = foreground_app() {
-        if always_excluded(&file) || user_excluded.contains(&file) {
+    if let Some((file, name)) = foreground_app() {
+        if always_excluded(&file) {
             return Some("приложение в исключениях");
         }
+        return settings.app_blocked(&[&file, &name]);
     }
     None
 }

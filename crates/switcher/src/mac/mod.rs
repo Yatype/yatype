@@ -11,7 +11,9 @@
 //!   switcher --dry-run   — только писать в лог, что бы исправил
 //!   switcher --check     — проверить раскладки без разрешений
 //!   switcher --snapshot DIR — отрисовать окна в PNG (проверка интерфейса)
+//!   switcher --settings  — сразу открыть окно настроек (проверка интерфейса)
 
+mod app_list;
 mod platform;
 pub mod ui;
 
@@ -43,7 +45,7 @@ fn check() {
     println!(
         "Активное приложение: {}, исправлять можно: {}",
         guard::frontmost_app().unwrap_or_default(),
-        guard::blocked(&[]).map_or("да".to_string(), |why| format!("нет ({why})"))
+        guard::blocked(&engine::Settings::default()).map_or("да".to_string(), |why| format!("нет ({why})"))
     );
 
     // Клавиши g h b d t n — «ghbdtn» / «привет».
@@ -95,6 +97,9 @@ pub fn main() {
         }
     } else {
         controller.show_onboarding();
+    }
+    if flag("--settings") {
+        let _: () = unsafe { objc2::msg_send![&*controller, showSettings: std::ptr::null::<objc2::runtime::AnyObject>()] };
     }
     ui::watch_permission(controller);
     nsapp.run();

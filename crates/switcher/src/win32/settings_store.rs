@@ -18,6 +18,7 @@ use engine::settings::{Combo, Hotkey, Settings};
 const HEADER: &str = "\
 # Настройки Yatype. Можно править в Блокноте: изменения подхватятся сами.
 # excluded_app — программа, где не исправлять (имя файла, например telegram.exe).
+# only_listed=1 — исправлять только в программах allowed_app=…
 # exception_word — слово, которое не исправлять.
 ";
 
@@ -48,7 +49,9 @@ pub fn parse(text: &str) -> Settings {
             }
             "backspace_undo" => s.backspace_undo = value == "1",
             "excluded_app" => s.excluded_apps.push(value.to_lowercase()),
-            "exception_word" => s.exception_words.push(value.to_string()),
+            "only_listed" => s.only_listed = value == "1",
+            "allowed_app" => s.allowed_apps.push(value.to_lowercase()),
+            "exception_word" => s.exception_words.push(detector::model::normalize(value)),
             _ => {}
         }
     }
@@ -65,6 +68,10 @@ pub fn format(s: &Settings) -> String {
     out += &format!("backspace_undo={}\n", s.backspace_undo as u8);
     for app in &s.excluded_apps {
         out += &format!("excluded_app={app}\n");
+    }
+    out += &format!("only_listed={}\n", s.only_listed as u8);
+    for app in &s.allowed_apps {
+        out += &format!("allowed_app={app}\n");
     }
     for word in &s.exception_words {
         out += &format!("exception_word={word}\n");
@@ -96,6 +103,8 @@ mod tests {
             combo: Some(Combo { code: 0x2C, mods: 3 }),
             backspace_undo: true,
             excluded_apps: vec!["telegram.exe".into()],
+            only_listed: true,
+            allowed_apps: vec!["winword.exe".into()],
             exception_words: vec!["ckjdj".into()],
         };
         let back = parse(&format(&s));
@@ -104,6 +113,8 @@ mod tests {
         assert_eq!(back.combo, s.combo);
         assert_eq!(back.backspace_undo, s.backspace_undo);
         assert_eq!(back.excluded_apps, s.excluded_apps);
+        assert_eq!(back.only_listed, s.only_listed);
+        assert_eq!(back.allowed_apps, s.allowed_apps);
         assert_eq!(back.exception_words, s.exception_words);
     }
 

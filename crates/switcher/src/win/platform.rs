@@ -48,13 +48,13 @@ impl Platform for WinPlatform {
         self.layout(lang).select()
     }
 
-    fn blocked(&mut self, user_excluded: &[String]) -> Option<&'static str> {
+    fn blocked(&mut self, settings: &Settings) -> Option<&'static str> {
         if let Some(app) = guard::foreground_app() {
             if app.0 != "explorer.exe" {
                 self.last_app = Some(app);
             }
         }
-        guard::blocked(user_excluded)
+        guard::blocked(settings)
     }
 
     fn replace(&mut self, delete: usize, insert: &str) {

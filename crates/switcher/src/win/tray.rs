@@ -16,7 +16,7 @@ use windows_sys::Win32::UI::Shell::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreateIconIndirect, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyMenu,
-    GetCursorPos, HICON, HMENU, ICONINFO, MF_CHECKED, MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING, PostMessageW,
+    GetCursorPos, HICON, HMENU, ICONINFO, IDYES, MB_ICONINFORMATION, MB_YESNO, MF_CHECKED, MessageBoxW, MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING, PostMessageW,
     PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SW_SHOWNORMAL, SetForegroundWindow, TPM_BOTTOMALIGN,
     TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, WM_APP, WM_DESTROY, WM_LBUTTONUP, WM_NULL, WM_RBUTTONUP,
     WM_TIMER, WNDCLASSW,
@@ -43,6 +43,10 @@ const CMD_BACKSPACE_UNDO: usize = 20;
 const CMD_AUTOSTART: usize = 21;
 const CMD_LISTS: usize = 30;
 const CMD_LICENSES: usize = 31;
+const CMD_UPDATES: usize = 32;
+
+/// Страница загрузок: туда ведёт пункт «Обновления…».
+const RELEASES_URL: &str = "https://github.com/Yatype/yatype/releases/latest";
 const CMD_QUIT: usize = 99;
 
 /// Скрытое окно, которому приходят сообщения значка и меню.
@@ -241,7 +245,8 @@ fn show_menu(hwnd: HWND) {
             add_item(menu, 0, &last, false, false);
             separator(menu);
         }
-        add_item(menu, CMD_ENABLED, "Исправлять автоматически", settings.enabled, true);
+        let pause = if settings.enabled { "Приостановить Yatype" } else { "▶ Включить Yatype" };
+        add_item(menu, CMD_ENABLED, pause, false, true);
         if let Some((file, name)) = &last_app {
             let excluded = settings.excluded_apps.contains(file);
             add_item(menu, CMD_EXCLUDE_APP, &format!("Не исправлять в «{name}»"), excluded, true);
@@ -268,6 +273,7 @@ fn show_menu(hwnd: HWND) {
         add_item(menu, CMD_AUTOSTART, "Запускать при входе в Windows", autostart::enabled(), true);
         separator(menu);
         add_item(menu, CMD_LISTS, "Исключения и настройки (файл)…", false, true);
+        add_item(menu, CMD_UPDATES, "Обновления…", false, true);
         add_item(menu, CMD_LICENSES, "Лицензии словарей", false, true);
         separator(menu);
         add_item(menu, CMD_QUIT, "Выход", false, true);
@@ -361,6 +367,18 @@ fn run_command(hwnd: HWND, command: usize, last_app: Option<(String, String)>) {
                 e.platform.save_settings(&settings);
             });
             open("notepad.exe", Some(&settings_store::path().display().to_string()));
+        }
+        // Программа сама в сеть не ходит: говорит, какая версия стоит, и по
+        // кнопке открывает страницу загрузок в браузере.
+        CMD_UPDATES => {
+            let text = format!(
+                "У вас Yatype {}.\n\nНовые версии выходят на странице загрузок на GitHub. Если там номер больше — скачайте и поставьте поверх старой, настройки сохранятся.\n\nСам Yatype в интернет не ходит.\n\nОткрыть страницу загрузок?",
+                env!("CARGO_PKG_VERSION")
+            );
+            let answer = unsafe { MessageBoxW(hwnd, wide(&text).as_ptr(), wide("Обновления").as_ptr(), MB_YESNO | MB_ICONINFORMATION) };
+            if answer == IDYES {
+                open(RELEASES_URL, None);
+            }
         }
         CMD_LICENSES => {
             if let Ok(exe) = std::env::current_exe() {

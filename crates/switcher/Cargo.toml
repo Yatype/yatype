@@ -2,6 +2,7 @@
 name = "switcher"
 version = "0.1.1"
 edition = "2024"
+license = "GPL-3.0-or-later"
 description = "Yatype — исправляет текст, набранный не в той раскладке"
 
 [dependencies]

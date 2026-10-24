@@ -1,6 +1,9 @@
 Third-party data used by this program
 =====================================
 
+Yatype itself is free software under the GNU General Public License v3 or
+later, see LICENSE.txt. The components below keep their own licenses.
+
 This file must be shipped inside the program (for example in the .app
 bundle's Resources folder). It does not need to be shown in the interface.
 

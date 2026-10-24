@@ -67,6 +67,7 @@ jobs:
           New-Item -ItemType Directory -Force dist\portable | Out-Null
           Copy-Item target\x86_64-pc-windows-msvc\release\switcher.exe dist\portable\Yatype.exe
           Copy-Item data\LICENSES.txt dist\portable\
+          Copy-Item LICENSE dist\portable\LICENSE.txt
           Compress-Archive -Path dist\portable\* -DestinationPath "dist\Yatype-$env:VERSION$env:WINDOWS_CHANNEL-windows-portable.zip"
       - uses: actions/upload-artifact@v7
         with:

@@ -43,6 +43,7 @@ Name: "autostart"; Description: "Запускать Yatype при входе в 
 [Files]
 Source: "..\..\target\x86_64-pc-windows-msvc\release\switcher.exe"; DestDir: "{app}"; DestName: "Yatype.exe"; Flags: ignoreversion
 Source: "..\..\data\LICENSES.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
 
 [Icons]
 Name: "{userprograms}\Yatype"; Filename: "{app}\Yatype.exe"

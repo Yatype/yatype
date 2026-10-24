@@ -130,7 +130,7 @@ brew install --cask yatype/tap/yatype
 
 **Yatype** fixes text typed in the wrong keyboard layout (Russian ↔ English)
 and switches the layout for you — like Punto Switcher, for modern macOS and
-Windows. Free, no ads, no tracking, works offline. Type “ghbdtn” and get
+Windows. Free and open source (GPL v3), no ads, no tracking, works offline. Type “ghbdtn” and get
 “привет”; double-tap Control to undo. [Download](https://github.com/Yatype/yatype/releases/latest).
 
 ---
@@ -156,9 +156,11 @@ tools/build_dmg.sh              # установщик для macOS
 **Да, свободно.** Программа бесплатная: скачивайте, ставьте на любые свои
 компьютеры, делитесь ссылкой с друзьями.
 
-Исходный код выложен открыто, чтобы любой мог проверить: программа делает
-только то, что написано выше, и ничего никуда не отправляет. Брать этот код
-в свои проекты без разрешения автора нельзя — подробности в [LICENSE](LICENSE).
+**Открытый код под лицензией [GPL v3](LICENSE).** Любой может проверить, что
+программа делает только то, что написано выше, и ничего никуда не отправляет;
+может собрать её сам, изменить и делиться изменениями. Если вы встраиваете
+этот код в свою программу и раздаёте её, ваша программа тоже должна быть
+открытой под GPL — сделать на этом коде закрытый продукт нельзя.
 
 © 2026 Yatype.
 

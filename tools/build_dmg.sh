@@ -38,6 +38,7 @@ lipo -create -output "$APP/Contents/MacOS/$EXECUTABLE" \
     target/aarch64-apple-darwin/release/switcher \
     target/x86_64-apple-darwin/release/switcher
 cp data/LICENSES.txt tools/Credits.html "$APP/Contents/Resources/"
+cp LICENSE "$APP/Contents/Resources/LICENSE.txt"
 
 echo "→ Иконка"
 swift tools/make_icon.swift "$TMP/icon.png"

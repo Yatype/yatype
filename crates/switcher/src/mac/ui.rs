@@ -54,6 +54,7 @@ struct SettingsWindow {
     combo_button: Retained<NSButton>,
     backspace: Retained<NSButton>,
     apps_mode: Retained<NSPopUpButton>,
+    apps_hint: Retained<NSTextField>,
     apps: Retained<NSTableView>,
     words: Retained<NSTextView>,
 }
@@ -454,6 +455,10 @@ impl Controller {
         if let Some(w) = self.ivars().settings.borrow().as_ref() {
             *self.ivars().app_rows.borrow_mut() = app_list(&app.settings).iter().map(|e| app_list::resolve(e)).collect();
             w.apps_mode.selectItemAtIndex(app.settings.only_listed as isize);
+            let (hint, warn) = apps_hint(&app.settings);
+            w.apps_hint.setStringValue(&ns(hint));
+            let color = if warn { NSColor::systemRedColor() } else { NSColor::secondaryLabelColor() };
+            w.apps_hint.setTextColor(Some(&color));
             w.apps.reloadData();
             w.words.setString(&ns(&app.settings.exception_words.join("\n")));
         }
@@ -504,6 +509,7 @@ impl Controller {
             label.setPreferredMaxLayoutWidth(inner);
             let h = label.fittingSize().height.ceil();
             place(&label, h, gap);
+            label
         };
 
         // Основное.
@@ -607,7 +613,8 @@ impl Controller {
             b.setFrame(NSRect::new(NSPoint::new(x, table_bottom + 3.0), NSSize::new(24.0, 22.0)));
             content.addSubview(&b);
         }
-        caption(&mut place, "Терминалы и менеджеры паролей исключены всегда.", BLOCK);
+        // Подсказка меняется с режимом (см. `apps_hint`); высоту берём по самому длинному тексту.
+        let apps_hint = caption(&mut place, APPS_HINT_EMPTY, BLOCK);
         separator(&mut place);
 
         // Слова-исключения.
@@ -628,7 +635,7 @@ impl Controller {
         }
         window.setContentSize(NSSize::new(width, height - shift));
         window.center();
-        SettingsWindow { window, enabled, login, hotkey, combo_label, combo_button, backspace, apps_mode, apps, words }
+        SettingsWindow { window, enabled, login, hotkey, combo_label, combo_button, backspace, apps_mode, apps_hint, apps, words }
     }
 
     /// «О Yatype»: иконка, версия, одна строка о программе и ссылка на
@@ -833,6 +840,19 @@ fn new_window(mtm: MainThreadMarker, title: &str, width: f64, height: f64) -> Re
     unsafe { window.setReleasedWhenClosed(false) };
     window.setTitle(&ns(title));
     window
+}
+
+const APPS_HINT_EMPTY: &str =
+    "Список пуст — сейчас Yatype не работает ни в одной программе. Добавьте программы кнопкой «+» или выберите «Везде, кроме этих».";
+
+/// Подсказка под списком программ: что значит текущий режим. `true` —
+/// предупреждение: в режиме «только в этих» с пустым списком Yatype молчит везде.
+fn apps_hint(s: &Settings) -> (&'static str, bool) {
+    match (s.only_listed, s.allowed_apps.is_empty()) {
+        (false, _) => ("Yatype работает во всех программах, кроме этих. Терминалы и менеджеры паролей исключены всегда.", false),
+        (true, false) => ("Yatype работает только в этих программах, в остальных молчит.", false),
+        (true, true) => (APPS_HINT_EMPTY, true),
+    }
 }
 
 /// Список программ, который сейчас действует: исключения или, в режиме

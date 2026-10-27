@@ -7,9 +7,9 @@ use std::rc::Rc;
 
 use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, AnyObject, ProtocolObject, Sel};
-use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
+use objc2::{AllocAnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSAlert, NSAppearance, NSBox, NSBoxType, NSColor, NSImageView, NSTextAlignment, NSBorderType, NSControlTextEditingDelegate, NSScrollView, NSTableColumn, NSTableView, NSTableViewDataSource, NSTableViewDelegate, NSAppearanceNameAqua, NSApplication, NSBackingStoreType, NSBitmapImageFileType, NSButton, NSFont, NSMenu, NSMenuDelegate, NSMenuItem,
+    NSAlert, NSAppearance, NSSwitch, NSControlSize, NSBox, NSBoxType, NSColor, NSImageView, NSTextAlignment, NSBorderType, NSControlTextEditingDelegate, NSScrollView, NSTableColumn, NSTableView, NSTableViewDataSource, NSTableViewDelegate, NSAppearanceNameAqua, NSApplication, NSBackingStoreType, NSBitmapImageFileType, NSBitmapImageRep, NSDeviceRGBColorSpace, NSButton, NSFont, NSMenu, NSMenuDelegate, NSMenuItem,
     NSPopUpButton, NSStatusItem, NSTextDelegate, NSTextField, NSTextView, NSTextViewDelegate, NSView, NSWindow, NSWindowDelegate, NSWindowStyleMask,
     NSWorkspace,
 };
@@ -47,14 +47,15 @@ struct MenuItems {
 /// Элементы окна настроек.
 struct SettingsWindow {
     window: Retained<NSWindow>,
-    enabled: Retained<NSButton>,
-    login: Option<Retained<NSButton>>,
+    enabled: Retained<NSSwitch>,
+    login: Option<Retained<NSSwitch>>,
     hotkey: Retained<NSPopUpButton>,
     combo_label: Retained<NSTextField>,
     combo_button: Retained<NSButton>,
-    backspace: Retained<NSButton>,
-    apps_mode: Retained<NSPopUpButton>,
+    backspace: Retained<NSSwitch>,
+    apps_mode: Retained<NSSwitch>,
     apps_hint: Retained<NSTextField>,
+    apps_empty: Retained<NSTextField>,
     apps: Retained<NSTableView>,
     words: Retained<NSTextView>,
 }
@@ -183,7 +184,7 @@ define_class!(
 
         #[unsafe(method(enabledChanged:))]
         fn enabled_changed(&self, sender: Option<&AnyObject>) {
-            let on = sender.and_then(|s| s.downcast_ref::<NSButton>()).is_some_and(|b| b.state() == 1);
+            let on = is_on(sender);
             {
                 let mut app = self.ivars().app.borrow_mut();
                 app.settings.enabled = on;
@@ -194,7 +195,7 @@ define_class!(
 
         #[unsafe(method(loginChanged:))]
         fn login_changed(&self, sender: Option<&AnyObject>) {
-            let on = sender.and_then(|s| s.downcast_ref::<NSButton>()).is_some_and(|b| b.state() == 1);
+            let on = is_on(sender);
             if let Err(message) = set_login_item(on) {
                 show_alert(self.mtm(), "Не удалось изменить автозапуск", &message);
             }
@@ -230,7 +231,7 @@ define_class!(
 
         #[unsafe(method(backspaceUndoChanged:))]
         fn backspace_undo_changed(&self, sender: Option<&AnyObject>) {
-            let on = sender.and_then(|s| s.downcast_ref::<NSButton>()).is_some_and(|b| b.state() == 1);
+            let on = is_on(sender);
             {
                 let mut app = self.ivars().app.borrow_mut();
                 app.settings.backspace_undo = on;
@@ -241,10 +242,9 @@ define_class!(
 
         #[unsafe(method(appsModeChanged:))]
         fn apps_mode_changed(&self, sender: Option<&AnyObject>) {
-            let index = sender.and_then(|s| s.downcast_ref::<NSPopUpButton>()).map_or(0, |p| p.indexOfSelectedItem());
             {
                 let mut app = self.ivars().app.borrow_mut();
-                app.settings.only_listed = index == 1;
+                app.settings.only_listed = is_on(sender);
                 app.settings_changed();
             }
             self.fill_lists();
@@ -253,7 +253,12 @@ define_class!(
 
         #[unsafe(method(addApps:))]
         fn add_apps(&self, _sender: Option<&AnyObject>) {
-            let picked = app_list::pick_apps(self.mtm());
+            let message = if self.ivars().app.borrow().settings.only_listed {
+                "Выберите программы, где Yatype будет исправлять раскладку"
+            } else {
+                "Выберите программы, где Yatype не будет исправлять раскладку"
+            };
+            let picked = app_list::pick_apps(self.mtm(), message);
             if picked.is_empty() {
                 return;
             }
@@ -454,11 +459,12 @@ impl Controller {
         let app = self.ivars().app.borrow();
         if let Some(w) = self.ivars().settings.borrow().as_ref() {
             *self.ivars().app_rows.borrow_mut() = app_list(&app.settings).iter().map(|e| app_list::resolve(e)).collect();
-            w.apps_mode.selectItemAtIndex(app.settings.only_listed as isize);
+            w.apps_mode.setState(app.settings.only_listed as isize);
             let (hint, warn) = apps_hint(&app.settings);
             w.apps_hint.setStringValue(&ns(hint));
             let color = if warn { NSColor::systemRedColor() } else { NSColor::secondaryLabelColor() };
             w.apps_hint.setTextColor(Some(&color));
+            w.apps_empty.setHidden(!app_list(&app.settings).is_empty());
             w.apps.reloadData();
             w.words.setString(&ns(&app.settings.exception_words.join("\n")));
         }
@@ -473,67 +479,85 @@ impl Controller {
         app.settings_changed();
     }
 
+    /// Настройки в духе «Системных настроек» macOS: скруглённые группы
+    /// строк, подпись слева, переключатель или список справа, короткие
+    /// пояснения под группами.
     fn build_settings_window(&self, mtm: MainThreadMarker) -> SettingsWindow {
-        let (width, height) = (520.0, 900.0);
-        let inner = width - 40.0;
+        let (width, height) = (540.0, 1000.0);
+        let (left, inner) = (20.0, width - 40.0);
         let window = new_window(mtm, "Настройки Yatype", width, height);
         window.setDelegate(Some(ProtocolObject::from_ref(self)));
         let content = window.contentView().expect("есть содержимое окна");
         let mut y = height - 20.0;
-        // Ставит элемент на всю ширину под предыдущим; возвращает его нижний край.
-        let mut place = |view: &NSView, h: f64, gap: f64| -> f64 {
-            y -= h;
-            view.setFrame(NSRect::new(NSPoint::new(20.0, y), NSSize::new(inner, h)));
+
+        const ROW: f64 = 38.0;
+        const PAD: f64 = 12.0;
+        let add = |view: &NSView, x: f64, y: f64, w: f64, h: f64| {
+            view.setFrame(NSRect::new(NSPoint::new(x, y), NSSize::new(w, h)));
             content.addSubview(view);
-            let bottom = y;
-            y -= gap;
-            bottom
         };
-        // Блоки: заголовок, элементы, серая подсказка под ними; между блоками — линия.
-        const ROW: f64 = 6.0;
-        const BLOCK: f64 = 16.0;
-        let separator = |place: &mut dyn FnMut(&NSView, f64, f64) -> f64| {
-            let line = NSBox::new(mtm);
-            line.setBoxType(NSBoxType::Separator);
-            place(&line, 1.0, BLOCK);
-        };
-        let header = |text: &str| {
+        // Заголовок группы — жирный, как в «Системных настройках».
+        let header = |y: &mut f64, text: &str| {
             let label = NSTextField::labelWithString(&ns(text), mtm);
             label.setFont(Some(&NSFont::boldSystemFontOfSize(13.0)));
-            label
+            *y -= 17.0;
+            add(&label, left + 4.0, *y, inner - 8.0, 17.0);
+            *y -= 8.0;
         };
-        let caption = |place: &mut dyn FnMut(&NSView, f64, f64) -> f64, text: &str, gap: f64| {
+        // Фон группы: скруглённый прямоугольник с тонкой рамкой.
+        let group = |top: f64, h: f64| {
+            let b = NSBox::new(mtm);
+            b.setBoxType(NSBoxType::Custom);
+            b.setCornerRadius(10.0);
+            b.setBorderWidth(0.5);
+            b.setBorderColor(&NSColor::separatorColor());
+            b.setFillColor(&NSColor::controlBackgroundColor());
+            add(&b, left, top - h, inner, h);
+        };
+        let divider = |y: f64| {
+            let line = NSBox::new(mtm);
+            line.setBoxType(NSBoxType::Separator);
+            add(&line, left + PAD, y, inner - 2.0 * PAD, 1.0);
+        };
+        let label = |text: &str| NSTextField::labelWithString(&ns(text), mtm);
+        // Строка: подпись слева, элемент справа (по вертикали — посередине строки).
+        let row = |top: f64, text: &str, control: &NSView, w: f64, h: f64| {
+            add(&label(text), left + PAD, top - ROW + (ROW - 17.0) / 2.0, inner - w - 3.0 * PAD, 17.0);
+            add(control, left + inner - PAD - w, top - ROW + (ROW - h) / 2.0, w, h);
+        };
+        let new_switch = |action: Sel| {
+            let sw = NSSwitch::new(mtm);
+            unsafe {
+                sw.setTarget(Some(self.target()));
+                sw.setAction(Some(action));
+            }
+            sw
+        };
+        let caption = |y: &mut f64, text: &str| {
             let label = NSTextField::wrappingLabelWithString(&ns(text), mtm);
             label.setFont(Some(&NSFont::systemFontOfSize(11.0)));
             label.setTextColor(Some(&NSColor::secondaryLabelColor()));
-            label.setPreferredMaxLayoutWidth(inner);
+            label.setPreferredMaxLayoutWidth(inner - 16.0);
             let h = label.fittingSize().height.ceil();
-            place(&label, h, gap);
+            *y -= 6.0 + h;
+            add(&label, left + 8.0, *y, inner - 16.0, h);
             label
         };
 
-        // Основное.
-        let enabled = unsafe {
-            NSButton::checkboxWithTitle_target_action(&ns("Yatype работает"), Some(self.target()), Some(sel!(enabledChanged:)), mtm)
-        };
-        place(&enabled, 20.0, ROW);
-        let login = login_service().map(|_| {
-            let b = unsafe {
-                NSButton::checkboxWithTitle_target_action(
-                    &ns("Запускать при входе в систему"),
-                    Some(self.target()),
-                    Some(sel!(loginChanged:)),
-                    mtm,
-                )
-            };
-            place(&b, 20.0, ROW);
-            b
-        });
-        place(&NSView::new(mtm), 0.0, BLOCK - ROW);
-        separator(&mut place);
+        // Основное: Yatype работает, автозапуск.
+        let enabled = new_switch(sel!(enabledChanged:));
+        let login = login_service().map(|_| new_switch(sel!(loginChanged:)));
+        let rows = if login.is_some() { 2.0 } else { 1.0 };
+        group(y, ROW * rows);
+        row(y, "Yatype работает", &enabled, 40.0, 22.0);
+        if let Some(login) = &login {
+            divider(y - ROW);
+            row(y - ROW, "Запускать при входе в систему", login, 40.0, 22.0);
+        }
+        y -= ROW * rows + 22.0;
 
         // Отмена и ручной перевод.
-        place(&header("Отмена и ручной перевод"), 17.0, ROW);
+        header(&mut y, "Отмена и ручной перевод");
         let hotkey = NSPopUpButton::initWithFrame_pullsDown(mtm.alloc(), NSRect::ZERO, false);
         for h in Hotkey::ALL {
             hotkey.addItemWithTitle(&ns(h.title()));
@@ -542,91 +566,82 @@ impl Controller {
             hotkey.setTarget(Some(self.target()));
             hotkey.setAction(Some(sel!(hotkeyChanged:)));
         }
-        // Список по ширине содержимого, а своё сочетание — в той же строке справа.
-        let row = place(&hotkey, 26.0, ROW);
-        hotkey.setFrame(NSRect::new(NSPoint::new(17.0, row), NSSize::new(230.0, 26.0)));
+        let backspace = new_switch(sel!(backspaceUndoChanged:));
+        group(y, ROW * 2.0);
+        row(y, "Клавиша", &hotkey, 216.0, 26.0);
+        // Своё сочетание — в той же строке, левее списка; видно, только когда выбрано.
         let combo_button = unsafe {
             NSButton::buttonWithTitle_target_action(&ns("Записать…"), Some(self.target()), Some(sel!(recordCombo:)), mtm)
         };
-        combo_button.setFrame(NSRect::new(NSPoint::new(252.0, row), NSSize::new(110.0, 26.0)));
-        content.addSubview(&combo_button);
-        let combo_label = NSTextField::labelWithString(&ns(""), mtm);
-        combo_label.setFrame(NSRect::new(NSPoint::new(370.0, row + 5.0), NSSize::new(width - 390.0, 17.0)));
-        content.addSubview(&combo_label);
-        caption(
-            &mut place,
-            "Сразу после исправления — вернуть как было. Если исправлять было нечего — перевести последнее слово.",
-            ROW + 2.0,
-        );
-        let backspace = unsafe {
-            NSButton::checkboxWithTitle_target_action(
-                &ns("Backspace сразу после исправления тоже отменяет"),
-                Some(self.target()),
-                Some(sel!(backspaceUndoChanged:)),
-                mtm,
-            )
-        };
-        place(&backspace, 20.0, BLOCK);
-        separator(&mut place);
+        combo_button.setControlSize(NSControlSize::Small);
+        let combo_x = left + inner - PAD - 216.0 - 8.0 - 84.0;
+        add(&combo_button, combo_x, y - ROW + (ROW - 24.0) / 2.0, 84.0, 24.0);
+        let combo_label = label("");
+        combo_label.setAlignment(NSTextAlignment::Right);
+        combo_label.setTextColor(Some(&NSColor::secondaryLabelColor()));
+        add(&combo_label, combo_x - 108.0, y - ROW + (ROW - 17.0) / 2.0, 100.0, 17.0);
+        divider(y - ROW);
+        row(y - ROW, "Backspace сразу после исправления тоже отменяет", &backspace, 40.0, 22.0);
+        y -= ROW * 2.0;
+        caption(&mut y, "Сразу после исправления клавиша возвращает как было. Если исправлять было нечего — переводит последнее слово.");
+        y -= 22.0;
 
-        // Программы: заголовок слева, режим справа.
-        let apps_mode = NSPopUpButton::initWithFrame_pullsDown(mtm.alloc(), NSRect::ZERO, false);
-        apps_mode.addItemWithTitle(&ns("Везде, кроме этих"));
-        apps_mode.addItemWithTitle(&ns("Только в этих"));
-        unsafe {
-            apps_mode.setTarget(Some(self.target()));
-            apps_mode.setAction(Some(sel!(appsModeChanged:)));
-        }
-        let row = place(&header("Программы"), 26.0, ROW);
-        content.subviews().lastObject().expect("заголовок").setFrame(NSRect::new(
-            NSPoint::new(20.0, row + 4.0),
-            NSSize::new(200.0, 17.0),
-        ));
-        apps_mode.setFrame(NSRect::new(NSPoint::new(width - 20.0 - 180.0 + 3.0, row), NSSize::new(180.0, 26.0)));
-        content.addSubview(&apps_mode);
-        let (apps_scroll, apps) = app_table(mtm, inner);
+        // Программы: переключатель режима и список в одной группе.
+        header(&mut y, "Программы");
+        let apps_mode = new_switch(sel!(appsModeChanged:));
+        let list_h = 132.0;
+        group(y, ROW + list_h);
+        row(y, "Работать только в выбранных программах", &apps_mode, 40.0, 22.0);
+        divider(y - ROW);
+        let (apps_scroll, apps) = app_table(mtm, inner - 2.0);
         unsafe {
             apps.setDataSource(Some(ProtocolObject::from_ref(self)));
             apps.setDelegate(Some(ProtocolObject::from_ref(self)));
         }
-        let table_bottom = place(&apps_scroll, 120.0, ROW);
-        // Кнопки «+» и «−» внутри рамки списка, в правом нижнем углу, левее
-        // полосы прокрутки, которая появляется при длинном списке.
-        let scroller = 16.0;
-        // Полоса под кнопки: закрывает строки списка, как в списках macOS.
+        let list_bottom = y - ROW - list_h;
+        add(&apps_scroll, left + 1.0, list_bottom + 1.0, inner - 2.0, list_h - 2.0);
+        // Пустой список — серая надпись посередине, как в Системных настройках.
+        let apps_empty = NSTextField::labelWithString(&ns("Нет программ"), mtm);
+        apps_empty.setTextColor(Some(&NSColor::tertiaryLabelColor()));
+        apps_empty.setAlignment(NSTextAlignment::Center);
+        add(&apps_empty, left, list_bottom + 26.0 + (list_h - 26.0) / 2.0 - 9.0, inner, 18.0);
+        // Полоса с «+» и «−» внизу группы, как в списках macOS.
         let strip = NSBox::new(mtm);
         strip.setBoxType(NSBoxType::Custom);
         strip.setBorderWidth(0.0);
+        strip.setCornerRadius(9.0);
         strip.setFillColor(&NSColor::controlBackgroundColor());
-        strip.setFrame(NSRect::new(NSPoint::new(21.0, table_bottom + 1.0), NSSize::new(inner - 2.0, 25.0)));
-        content.addSubview(&strip);
-        let line = NSBox::new(mtm);
-        line.setBoxType(NSBoxType::Separator);
-        line.setFrame(NSRect::new(NSPoint::new(21.0, table_bottom + 26.0), NSSize::new(inner - 2.0, 1.0)));
-        content.addSubview(&line);
+        add(&strip, left + 1.0, list_bottom + 1.0, inner - 2.0, 26.0);
+        divider(list_bottom + 27.0);
         let buttons = [("+", sel!(addApps:)), ("−", sel!(removeApp:))];
         for (i, (title, action)) in buttons.into_iter().enumerate() {
             let b = unsafe { NSButton::buttonWithTitle_target_action(&ns(title), Some(self.target()), Some(action), mtm) };
             b.setBordered(false);
             b.setFont(Some(&NSFont::systemFontOfSize(16.0)));
-            let x = width - 20.0 - scroller - 4.0 - (buttons.len() - i) as f64 * 24.0;
-            b.setFrame(NSRect::new(NSPoint::new(x, table_bottom + 3.0), NSSize::new(24.0, 22.0)));
-            content.addSubview(&b);
+            add(&b, left + 8.0 + i as f64 * 26.0, list_bottom + 3.0, 24.0, 22.0);
         }
+        y = list_bottom;
         // Подсказка меняется с режимом (см. `apps_hint`); высоту берём по самому длинному тексту.
-        let apps_hint = caption(&mut place, APPS_HINT_EMPTY, BLOCK);
-        separator(&mut place);
+        let apps_hint = caption(&mut y, APPS_HINT_EMPTY);
+        y -= 22.0;
 
         // Слова-исключения.
-        place(&header("Слова, которые не исправлять"), 17.0, ROW);
+        header(&mut y, "Слова, которые не исправлять");
+        let words_h = 84.0;
+        group(y, words_h);
         let (words_scroll, words) = text_area(mtm);
         words.setDelegate(Some(ProtocolObject::from_ref(self)));
-        place(&words_scroll, 80.0, ROW);
-        caption(&mut place, "По одному в строке. Сюда сами попадают исправления, которые вы отменили.", 0.0);
+        words.setDrawsBackground(false);
+        if let Some(scroll) = words_scroll.downcast_ref::<NSScrollView>() {
+            scroll.setBorderType(NSBorderType::NoBorder);
+            scroll.setDrawsBackground(false);
+        }
+        add(&words_scroll, left + 6.0, y - words_h + 4.0, inner - 12.0, words_h - 8.0);
+        y -= words_h;
+        caption(&mut y, "По одному в строке. Сюда сами попадают исправления, которые вы отменили.");
         let bottom = y;
 
-        // Высота окна — по содержимому: строк бывает разное число (автозапуск
-        // есть не на всех macOS), а снизу должен остаться тот же отступ, что сверху.
+        // Высота окна — по содержимому: снизу тот же отступ, что сверху.
         let shift = bottom - 20.0;
         for view in content.subviews().iter() {
             let mut frame = view.frame();
@@ -635,7 +650,7 @@ impl Controller {
         }
         window.setContentSize(NSSize::new(width, height - shift));
         window.center();
-        SettingsWindow { window, enabled, login, hotkey, combo_label, combo_button, backspace, apps_mode, apps_hint, apps, words }
+        SettingsWindow { window, enabled, login, hotkey, combo_label, combo_button, backspace, apps_mode, apps_hint, apps_empty, apps, words }
     }
 
     /// «О Yatype»: иконка, версия, одна строка о программе и ссылка на
@@ -843,7 +858,7 @@ fn new_window(mtm: MainThreadMarker, title: &str, width: f64, height: f64) -> Re
 }
 
 const APPS_HINT_EMPTY: &str =
-    "Список пуст — сейчас Yatype не работает ни в одной программе. Добавьте программы кнопкой «+» или выберите «Везде, кроме этих».";
+    "Список пуст — сейчас Yatype не работает ни в одной программе. Добавьте программы кнопкой «+» или выключите переключатель выше.";
 
 /// Подсказка под списком программ: что значит текущий режим. `true` —
 /// предупреждение: в режиме «только в этих» с пустым списком Yatype молчит везде.
@@ -853,6 +868,11 @@ fn apps_hint(s: &Settings) -> (&'static str, bool) {
         (true, false) => ("Yatype работает только в этих программах, в остальных молчит.", false),
         (true, true) => (APPS_HINT_EMPTY, true),
     }
+}
+
+/// Включён ли переключатель, приславший действие.
+fn is_on(sender: Option<&AnyObject>) -> bool {
+    sender.and_then(|s| s.downcast_ref::<NSSwitch>()).is_some_and(|b| b.state() == 1)
 }
 
 /// Список программ, который сейчас действует: исключения или, в режиме
@@ -876,7 +896,9 @@ fn app_table(mtm: MainThreadMarker, width: f64) -> (Retained<NSView>, Retained<N
     table.setRowHeight(app_list::ROW_HEIGHT);
     table.setAllowsMultipleSelection(false);
     scroll.setDocumentView(Some(&table));
-    scroll.setBorderType(NSBorderType::BezelBorder);
+    // Рамку рисует группа, в которой лежит список.
+    scroll.setBorderType(NSBorderType::NoBorder);
+    table.setBackgroundColor(&NSColor::controlBackgroundColor());
     scroll.setHasVerticalScroller(true);
     // Внизу место под кнопки «+» и «−»: последняя строка и полоса
     // прокрутки не уходят под них.
@@ -910,8 +932,9 @@ pub fn snapshot_windows(controller: Retained<Controller>, dir: String) {
     let light = NSAppearance::appearanceNamed(unsafe { NSAppearanceNameAqua });
     NSApplication::sharedApplication(controller.mtm()).setAppearance(light.as_deref());
     controller.show_onboarding();
-    let _: () = unsafe { msg_send![&*controller, showSettings: std::ptr::null::<AnyObject>()] };
+    // Настройки открываем последними: в активном окне переключатели цветные.
     let _: () = unsafe { msg_send![&*controller, showAbout: std::ptr::null::<AnyObject>()] };
+    let _: () = unsafe { msg_send![&*controller, showSettings: std::ptr::null::<AnyObject>()] };
     SNAPSHOT_DIR.with(|d| *d.borrow_mut() = Some(dir));
     CONTROLLER.with(|c| *c.borrow_mut() = Some(controller));
     unsafe {
@@ -938,7 +961,24 @@ extern "C" fn snapshot_tick(_timer: *mut c_void, _info: *mut c_void) {
         for (name, window) in windows {
             let Some(view) = window.and_then(|w| w.contentView()) else { continue };
             let rect = view.bounds();
-            let Some(bitmap) = view.bitmapImageRepForCachingDisplayInRect(rect) else { continue };
+            // Вдвое крупнее, как на экране Retina, на любом мониторе.
+            let bitmap = unsafe {
+                NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bytesPerRow_bitsPerPixel(
+                    NSBitmapImageRep::alloc(),
+                    std::ptr::null_mut(),
+                    (rect.size.width * 2.0) as isize,
+                    (rect.size.height * 2.0) as isize,
+                    8,
+                    4,
+                    true,
+                    false,
+                    NSDeviceRGBColorSpace,
+                    0,
+                    0,
+                )
+            };
+            let Some(bitmap) = bitmap else { continue };
+            bitmap.setSize(rect.size);
             view.cacheDisplayInRect_toBitmapImageRep(rect, &bitmap);
             let png = unsafe {
                 bitmap.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new())

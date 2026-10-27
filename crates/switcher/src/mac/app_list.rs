@@ -50,7 +50,7 @@ fn display_name(path: &NSString) -> String {
 /// Спросить, какие программы добавить. Возвращает записи для настроек:
 /// идентификатор программы, а если его нет — название.
 #[allow(deprecated)] // setAllowedFileTypes: замена требует отдельного фреймворка UTType
-pub fn pick_apps(mtm: MainThreadMarker) -> Vec<String> {
+pub fn pick_apps(mtm: MainThreadMarker, message: &str) -> Vec<String> {
     let panel = NSOpenPanel::openPanel(mtm);
     panel.setCanChooseFiles(true);
     panel.setCanChooseDirectories(false);
@@ -58,7 +58,7 @@ pub fn pick_apps(mtm: MainThreadMarker) -> Vec<String> {
     panel.setDirectoryURL(Some(&NSURL::fileURLWithPath(&NSString::from_str("/Applications"))));
     panel.setAllowedFileTypes(Some(&NSArray::from_retained_slice(&[NSString::from_str("app")])));
     panel.setPrompt(Some(&NSString::from_str("Добавить")));
-    panel.setMessage(Some(&NSString::from_str("Выберите программы, где Yatype не будет исправлять раскладку")));
+    panel.setMessage(Some(&NSString::from_str(message)));
     if panel.runModal() != 1 {
         return Vec::new(); // NSModalResponseOK
     }
